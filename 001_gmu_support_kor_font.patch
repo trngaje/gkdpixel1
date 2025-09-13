@@ -1,0 +1,701 @@
+diff --git a/gcw0.mk b/gcw0.mk
+index a1b501c..f1c4afc 100644
+--- a/gcw0.mk
++++ b/gcw0.mk
+@@ -43,7 +43,7 @@ CFLAGS             = \
+ 
+ LFLAGS             = \
+                      $(SDL_LIB) \
+-                     -lm -ldl -lz -lgcc -Wl,-export-dynamic \
++                     -lm -ldl -lz -lgcc -Wl,-export-dynamic -liconv 
+ 
+ DISTFILES          = \
+                      $(BINARY) frontends decoders themes \
+diff --git a/gmu.gcw0.conf b/gmu.gcw0.conf
+index dcf33bf..18ebca0 100644
+--- a/gmu.gcw0.conf
++++ b/gmu.gcw0.conf
+@@ -1,5 +1,5 @@
+ Gmu.AutoPlayOnProgramStart=no
+-Gmu.DefaultFileBrowserPath=/media/
++Gmu.DefaultFileBrowserPath=/media/roms/music/
+ Gmu.DefaultPlayMode=continue
+ Gmu.DeviceCloseASAP=yes
+ Gmu.FadeOutOnSkip=no
+@@ -31,7 +31,7 @@ SDL.AutoSelectCurrentPlaylistItem=yes
+ SDL.BacklightPowerOnOnTrackChange=no
+ SDL.CoverArtworkFilePattern=cover.jpg;cover.png;front.jpg;*.jpg;*.png
+ SDL.CoverArtworkLarge=no
+-SDL.DefaultSkin=default-modern
++SDL.DefaultSkin=default-modern-large
+ SDL.EnableCoverArtwork=yes
+ SDL.FileBrowserSelectNextAfterAdd=yes
+ SDL.Fullscreen=yes
+diff --git a/src/fileplayer.c b/src/fileplayer.c
+index 11acc20..015ebca 100644
+--- a/src/fileplayer.c
++++ b/src/fileplayer.c
+@@ -36,6 +36,10 @@
+ 
+ #define BUF_SIZE 65536
+ 
++#include <iconv.h>
++ 
++int euckr2utf8(char *source, char *dest, int dest_size);
++
+ static char            lyrics_file_pattern[256];
+ static long            seek_second;
+ 
+@@ -325,7 +329,8 @@ static void *decode_audio_thread(void *udata)
+ 						if (charset_is_valid_utf8_string(filename))
+ 							strncpy(ti->file_name, filename, SIZE_FILE_NAME-1);
+ 						else
+-							charset_iso8859_1_to_utf8(ti->file_name, filename, SIZE_FILE_NAME-1);
++							euckr2utf8(filename, ti->file_name, SIZE_FILE_NAME-1);
++							//charset_iso8859_1_to_utf8(ti->file_name, filename, SIZE_FILE_NAME-1);
+ 
+ 						/* Assume 44.1 kHz stereo as default */
+ 						ti->samplerate = 44100;
+diff --git a/src/frontends/sdl/about.c b/src/frontends/sdl/about.c
+index 5e883bb..bab42ce 100644
+--- a/src/frontends/sdl/about.c
++++ b/src/frontends/sdl/about.c
+@@ -18,6 +18,20 @@
+ #include "about.h"
+ #include "core.h"
+ 
++#if 1
++static const char *text_about_gmu = 
++	"이 프로그램에서 사용하는 라이브러리는:\n\n"
++	"- SDL, SDL_Image, SDL_gfx (옵션)\n\n"
++	"디코더 플러그인이 디코딩을 위한 추가 라이브러리를 사용합니다.\n"
++	"Johannes Heimansberg (**wej.k.vu**)이 프로그램 했습니다.\n\n"
++	"태릉|아재 (trngaje)에 의해 한글화 되었습니다.\n\n"
++	"보다 자세한 내용과 설정과 관련된 힌트를 얻으려면 README.txt를\n"
++	"보기 바랍니다. 내장된 도움말 화면도 정보를 얻을 수 있습니다.\n"
++	"프로젝트 웹사이트:\n"
++	"**http://wej.k.vu/projects/gmu/**\n\n"
++	"Gmu 는 프리소프트웨어입니다: GPL2. 라이센스에 따라\n"
++	"재배포 수정을 할 수 있습니다.\n";
++#else
+ static const char *text_about_gmu = 
+ 	"Libraries used by this program:\n\n"
+ 	"- SDL, SDL_Image, SDL_gfx (optional)\n\n"
+@@ -36,6 +50,7 @@ static const char *text_about_gmu =
+ 	"redistribute it and/or modify it under\n"
+ 	"the terms of the GNU General Public\n"
+ 	"License version 2.\n";
++#endif
+ 
+ int about_process_action(TextBrowser *tb_about, View *view, View old_view, int user_key_action)
+ {
+@@ -71,9 +86,24 @@ int about_process_action(TextBrowser *tb_about, View *view, View old_view, int u
+ 
+ void about_init(TextBrowser *tb_about, Skin *skin, char *decoders)
+ {
+-	static char txt[1024];
++	static char txt[1500];
+ 
+-	snprintf(txt, 1023, "This is the Gmu music player.\n\n"
++#if 1
++	snprintf(txt, sizeof(txt)-1, "이 것은 Gmu 뮤직플레이어입니다.\n\n"
++	                    "버젼.........: **"VERSION_NUMBER"**\n"
++	                    "빌드된 날짜.....: "__DATE__" "__TIME__"\n"
++	                    "인식된 장치.....: %s\n"
++	                    "설정파일 경로....: %s\n\n"
++	                    "Gmu 는 디코더 플러그인에 따라 다양한 파일 포맷을 지원합니다.\n"
++	                    "%s 디코더:\n\n%s\n"
++	                    "%s",
++	                    gmu_core_get_device_model_name(),
++	                    gmu_core_get_config_dir(),
++	                    STATIC ? "내장됨" : "로드됨",
++	                    decoders,
++	                    text_about_gmu);
++#else
++	snprintf(txt, sizeof(txt)-1, "This is the Gmu music player.\n\n"
+ 	                    "Version.........: **"VERSION_NUMBER"**\n"
+ 	                    "Built on........: "__DATE__" "__TIME__"\n"
+ 	                    "Detected device.: %s\n"
+@@ -87,7 +117,13 @@ void about_init(TextBrowser *tb_about, Skin *skin, char *decoders)
+ 	                    STATIC ? "Static build with built-in" : "Loaded",
+ 	                    decoders,
+ 	                    text_about_gmu);
++#endif
+ 
+ 	text_browser_init(tb_about, skin);
++	
++#if 1
++	text_browser_set_text(tb_about, txt, "Gmu 에 대한 설명");
++#else
+ 	text_browser_set_text(tb_about, txt, "About Gmu");
++#endif
+ }
+diff --git a/src/frontends/sdl/help.c b/src/frontends/sdl/help.c
+index a3131ff..7fc951a 100644
+--- a/src/frontends/sdl/help.c
++++ b/src/frontends/sdl/help.c
+@@ -18,6 +18,66 @@
+ #include "help.h"
+ #include "core.h"
+ 
++#if 1
++static const char *text_help = 
++"Gmu 뮤직 플레이어를 사용해 주셔서 감사합니다!\n\n"
++"이것은 Gmu의 가장 중요한 기능에 대한 짧은 설명서 입니다.\n\n"
++"Gmu 는 장치의 버튼에 의해 작동합니다.\n"
++"각각의 버튼은 두가지 기능을 갖을 수 있습니다.\n"
++"첫 번째 기능은 버튼을 그냥 눌러서 동작하고,\n"
++"두 번째 기능은 모드키와 같이 눌러서 동작합니다.\n"
++"모드 키는 **%s ** 버튼 입니다.\n"
++"이제 부터 그 키를 \"Mod\" 라고 다음 문장에서는 사용하겠습니다.\n"
++"위 아래로 스크롤 하기 위해서는 **%s ** 와\n"
++"**%s **버튼을 사용합니다.\n\n"
++"Gmu 는 다양한 정보를 표시하기 위해 여러 화면을 가지고 있습니다.\n"
++"주요 화면은 파일 탐색기와\n"
++"플레이리스트 탐색기와 트랙 정보화면이 있습니다.\n"
++"**%s** 키를 눌러 이 화면을 전환할 수 있습니다.\n\n"
++"화면과 상관 없는 전체 기능이 있습니다.\n"
++"그리고 특정 화면에서만 동작하는 기능이 있습니다.\n\n"
++"**중요한 전체 기능은**\n\n"
++"재생/앞으로 넘김.......: **%s **\n"
++"뒤로 넘김...........: **%s **\n"
++"앞으로 탐색..........: **%s **\n"
++"뒤로 탐색...........: **%s **\n"
++"일시정지............: **%s **\n"
++"정지..............: **%s **\n"
++"볼륨 업............: **%s **\n"
++"볼륨 다운...........: **%s **\n"
++"Gmu 종료..........: **%s **\n"
++"프로그램 정보.........: **%s **\n"
++"버튼 잠금+화면 끄기.....: **%s **\n"
++"버튼 잠금해제+화면 켜기...: **%s **\n"
++"\n"
++"**파일 탐색 기능**\n\n"
++"파일 추가/디렉토리 변경.........: **%s **\n"
++"디렉토리 추가...............: **%s **\n"
++"단일 파일 재생..............: **%s **\n"
++"디렉토리로부터 새 플레이리스트 만들기..: **%s **\n"
++"\n"
++"**플레이 리스트 탐색기 기능**\n\n"
++"선택한 파일 재생.......: **%s **\n"
++"선택한 파일 큐표시......: **%s **\n"
++"선택한 파일 삭제.......: **%s **\n"
++"플레이 리스트 초기화.....: **%s **\n"
++"재생 모드 변경........: **%s **\n"
++"플레이 리스트 저장/불러오기.: **%s **\n"
++"\n"
++"가장 중요한 기능이 있습니다.\n"
++"그다지 사용되지 않는 기능도 있습니다.\n"
++"이러한 기능들은 Gmu 폴더 안에 있는 README.txt에서 설명하고 있습니다.\n"
++"나중에 도움말 화면을 열고 싶을 때는\n"
++"** %s** 버튼을 눌러주세요.\n\n"
++"**시작하기**\n\n"
++"가장 처음 원하는 것은 특정 트랙을 플레이 리스에 추가 하는 것이라고 생각됩니다.\n"
++"이것은 매우 간단합니다. 처음 파일 탐색기 화면에서 **%s **을 사용합니다. \n"
++"위에 설명한 버튼을 사용하여 시스템 트리 안에서 단일 파일을 추가하거나 전체 디렉토리를 \n"
++"플레이리스트에 추가합니다.\n"
++"적어도 한개의 파일이 플레이 리스트에 있으면\n"
++"** %s** 버틀을 눌러 재생할 수 있습니다.\n\n"
++"Gmu 뮤질 플레이어로 유익한 시간 보내시기 바랍니다.\n";
++#else
+ static const char *text_help = 
+ "Welcome to the Gmu Music Player!\n\n"
+ "This is a short introduction to the\n"
+@@ -87,6 +147,7 @@ static const char *text_help =
+ "Have fun with the Gmu Music Player.\n"
+ "/wej"
+ ;
++#endif
+ 
+ void help_init(TextBrowser *tb_help, Skin *skin, KeyActionMapping *kam)
+ {
+@@ -124,7 +185,11 @@ void help_init(TextBrowser *tb_help, Skin *skin, KeyActionMapping *kam)
+ 	                    key_action_mapping_get_full_button_name(kam, GLOBAL_NEXT));
+ 
+ 	text_browser_init(tb_help, skin);
++#if 1
++	text_browser_set_text(tb_help, txt, "Gmu 도움말");
++#else
+ 	text_browser_set_text(tb_help, txt, "Gmu Help");
++#endif
+ }
+ 
+ int help_process_action(TextBrowser *tb_help, View *view, View old_view, int user_key_action)
+diff --git a/src/frontends/sdl/kam.c b/src/frontends/sdl/kam.c
+index 6035916..d22a038 100644
+--- a/src/frontends/sdl/kam.c
++++ b/src/frontends/sdl/kam.c
+@@ -31,6 +31,99 @@ void key_action_mapping_init(KeyActionMapping *kam)
+ 		kam[i].method         = 0;
+ 	}
+ 
++#if 1
++	kam[FB_DIR_UP].scope =                   FILE_BROWSER;
++	kam[FB_DIR_UP].description =                  "상위 디렉토리";
++	kam[FB_CHDIR].scope =                    FILE_BROWSER;
++	kam[FB_CHDIR].description =                   "디렉토리 변경";
++	kam[FB_ADD_FILE_TO_PL_OR_CHDIR].scope =  FILE_BROWSER;
++	kam[FB_ADD_FILE_TO_PL_OR_CHDIR].description = "파일 추가/디렉토리 변경";
++	kam[FB_ADD_DIR_TO_PL].scope =            FILE_BROWSER;
++	kam[FB_ADD_DIR_TO_PL].description =           "디렉토리 추가";
++	kam[FB_INSERT_FILE_INTO_PL].scope =      FILE_BROWSER;
++	kam[FB_INSERT_FILE_INTO_PL].description =     "파일 삽입";
++	kam[FB_PLAY_FILE].scope =                FILE_BROWSER;
++	kam[FB_PLAY_FILE].description =               "재생";
++	kam[FB_DELETE_FILE].scope =              FILE_BROWSER;
++	kam[FB_DELETE_FILE].description =             "삭제";
++	kam[FB_NEW_PL_FROM_DIR].scope =          FILE_BROWSER;
++	kam[FB_NEW_PL_FROM_DIR].description =         "새디렉토리리스트";
++	kam[PL_PLAY_ITEM].scope =                PLAYLIST;
++	kam[PL_PLAY_ITEM].description =               "재생";
++	kam[PL_REMOVE_ITEM].scope =              PLAYLIST;
++	kam[PL_REMOVE_ITEM].description =             "삭제";
++	kam[PL_CLEAR_PLAYLIST].scope =           PLAYLIST;
++	kam[PL_CLEAR_PLAYLIST].description =          "리스트 초기화";
++	kam[PL_TOGGLE_RANDOM].scope =            PLAYLIST;
++	kam[PL_TOGGLE_RANDOM].description =           "재생 모드 변경";
++	kam[PL_DELETE_FILE].scope =              PLAYLIST;
++	kam[PL_DELETE_FILE].description =             "삭제";
++	kam[PL_SAVE_PLAYLIST].scope =            PLAYLIST;
++	kam[PL_SAVE_PLAYLIST].description =           "리스트 저장/불러오기";
++	kam[PL_ENQUEUE].scope =                  PLAYLIST;
++	kam[PL_ENQUEUE].description =                 "큐표시";
++	kam[PLMANAGER_SELECT].scope =            PLAYLIST_SAVE;
++	kam[PLMANAGER_SELECT].description =           "저장";
++	kam[PLMANAGER_CANCEL].scope =            PLAYLIST_SAVE;
++	kam[PLMANAGER_CANCEL].description =           "취소";
++	kam[PLMANAGER_LOAD].scope =              PLAYLIST_SAVE;
++	kam[PLMANAGER_LOAD].description =             "불러오기";
++	kam[PLMANAGER_LOAD_APPEND].scope =       PLAYLIST_SAVE;
++	kam[PLMANAGER_LOAD_APPEND].description =      "현재 리스트에 추가";
++	kam[OKAY].scope =                        ABOUT | HELP;
++	kam[OKAY].description =                       "확인";
++	kam[RUN_SETUP].scope =                   ABOUT;
++	kam[RUN_SETUP].description =                  "Gmu 설정";
++	kam[SETUP_SELECT].scope =                SETUP;
++	kam[SETUP_SELECT].description =               "선택";
++	kam[SETUP_CLOSE].scope =                 SETUP;
++	kam[SETUP_CLOSE].description =                "저장&끝내기";
++	kam[SETUP_FB_SELECT].scope =             SETUP_FILE_BROWSER;
++	kam[SETUP_FB_SELECT].description =            "선택";
++	kam[SETUP_FB_CHDIR].scope =              SETUP_FILE_BROWSER;
++	kam[SETUP_FB_CHDIR].description =             "디렉토리 변경";
++	kam[SETUP_FB_CANCEL].scope =             SETUP_FILE_BROWSER;
++	kam[SETUP_FB_CANCEL].description =            "취소";
++	kam[TRACKINFO_TOGGLE_COVER].scope =      TRACK_INFO;
++	kam[TRACKINFO_TOGGLE_COVER].description =     "커버/분석";
++	kam[TRACKINFO_TOGGLE_TEXT].scope =       TRACK_INFO;
++	kam[TRACKINFO_TOGGLE_TEXT].description =      "텍스트 토글";
++	kam[TRACKINFO_DELETE_FILE].scope =       TRACK_INFO;
++	kam[TRACKINFO_DELETE_FILE].description =      "삭제";
++	kam[QUESTION_YES].scope =                QUESTION;
++	kam[QUESTION_YES].description =               "네";
++	kam[QUESTION_NO].scope =                 QUESTION;
++	kam[QUESTION_NO].description =                "아니오";
++	kam[GLOBAL_PROGRAM_INFO].scope =         ANY;
++	kam[GLOBAL_PROGRAM_INFO].description =        "정보";
++	kam[GLOBAL_HELP].scope =                 ANY;
++	kam[GLOBAL_HELP].description =                "도움말";
++	kam[GLOBAL_EXIT].scope =                 ANY;
++	kam[GLOBAL_EXIT].description =                "종료";
++	kam[GLOBAL_FULLSCREEN].scope =   ANY;
++	kam[GLOBAL_FULLSCREEN].description =          "전체화면";
++	kam[GLOBAL_LOCK].scope =                 ANY;
++	kam[GLOBAL_LOCK].description =                "잠금";
++	kam[GLOBAL_UNLOCK].scope =               ANY;
++	kam[GLOBAL_UNLOCK].description =              "잠금해제";
++	kam[GLOBAL_TOGGLE_VIEW].scope =          ANY;
++	kam[GLOBAL_NEXT].scope =                 ANY;
++	kam[GLOBAL_PAUSE].scope =                ANY;
++	kam[GLOBAL_STOP].scope =                 ANY;
++	kam[GLOBAL_PREV].scope =                 ANY;
++	kam[GLOBAL_SEEK_FWD].scope =             ANY;
++	kam[GLOBAL_SEEK_BWD].scope =             ANY;
++	kam[GLOBAL_INC_VOLUME].scope =           ANY;
++	kam[GLOBAL_DEC_VOLUME].scope =           ANY;
++	kam[GLOBAL_TOGGLE_TIME].scope =          ANY;
++	kam[GLOBAL_SET_SHUTDOWN_TIMER].scope =   ANY;
++	kam[GLOBAL_SET_SHUTDOWN_TIMER].description =  "셧다운 시간설정";
++	kam[MOVE_CURSOR_UP].scope =              ANY;
++	kam[MOVE_CURSOR_DOWN].scope =            ANY;
++	kam[MOVE_CURSOR_LEFT].scope =            ANY;
++	kam[MOVE_CURSOR_RIGHT].scope =           ANY;
++	kam[MODIFIER].scope =                    ANY;
++#else
+ 	kam[FB_DIR_UP].scope =                   FILE_BROWSER;
+ 	kam[FB_DIR_UP].description =                  "Dir up";
+ 	kam[FB_CHDIR].scope =                    FILE_BROWSER;
+@@ -122,6 +215,7 @@ void key_action_mapping_init(KeyActionMapping *kam)
+ 	kam[MOVE_CURSOR_LEFT].scope =            ANY;
+ 	kam[MOVE_CURSOR_RIGHT].scope =           ANY;
+ 	kam[MODIFIER].scope =                    ANY;
++#endif
+ }
+ 
+ static int get_button(char *button_name, int *button, int *modifier, ActivateMethod *amethod)
+diff --git a/src/frontends/sdl/sdl.c b/src/frontends/sdl/sdl.c
+index af4a4d8..07dc840 100644
+--- a/src/frontends/sdl/sdl.c
++++ b/src/frontends/sdl/sdl.c
+@@ -1271,7 +1271,7 @@ static void *start_player(void *arg)
+ 	cfg_add_key_if_not_present(config, "SDL.LyricsFilePattern", "$.txt;*.txt");
+ 	cfg_add_key_if_not_present(config, "SDL.AutoSelectCurrentPlaylistItem", "no");
+ 	cfg_key_add_presets(config, "SDL.AutoSelectCurrentPlaylistItem", "yes", "no", NULL);
+-	cfg_add_key_if_not_present(config, "SDL.DefaultSkin", "default-modern");
++	cfg_add_key_if_not_present(config, "SDL.DefaultSkin", "default-modern-large");
+ 	cfg_add_key_if_not_present(config, "SDL.Scroll", "always");
+ 	cfg_key_add_presets(config, "SDL.Scroll", "always", "auto", "never", NULL);
+ 	cfg_add_key_if_not_present(config, "SDL.BacklightPowerOnOnTrackChange", "no");
+diff --git a/src/frontends/sdl/textrenderer.c b/src/frontends/sdl/textrenderer.c
+index 55a7e64..16e5f02 100644
+--- a/src/frontends/sdl/textrenderer.c
++++ b/src/frontends/sdl/textrenderer.c
+@@ -19,6 +19,75 @@
+ #include "SDL_image.h"
+ #include "charset.h"
+ 
++#include "skin.h"
++#if 1
++
++#include "bitmap.h"
++#include "bitmapfont_11x11.h"
++
++extern Skin                skin;
++
++unsigned short utf8_to_unicode(unsigned char c1, unsigned char c2, unsigned char c3)
++{
++	unsigned short c=0;
++	
++	if ((c1 & 0xf0) == 0xe0)
++		if ((c2 & 0xc0) == 0x80)
++			if ((c3 & 0xc0) == 0x80)
++			{
++				c = ((c1 & 0xf) << 12) | ((c2 & 0x3f) << 6) | (c3 & 0x3f);
++				return c;
++			}
++			
++	return 0;
++}
++
++void draw_char_retroarch_eng(SDL_Surface* surface, unsigned char symbol, int x, int y, unsigned long color) 
++{
++	unsigned long *dst;
++
++	int l, u;
++	
++	for (l = 0; l < FONT_HEIGHT; l++)
++	{
++		dst=(unsigned long*)surface->pixels + (surface->pitch / 4)*(y+l) + x;
++		for (u = 0; u < FONT_WIDTH; u++)
++		{
++			unsigned char rem = 1 << (((u) + (l) * FONT_WIDTH) & 7);
++			unsigned char offset  = ((u) + (l) * FONT_WIDTH) >> 3;
++			if ((bitmap_bin[FONT_OFFSET(symbol) + offset] & rem) > 0)	{								
++				*dst = color;
++			}
++			dst++;
++
++		}
++	}
++}
++
++void draw_char_kor(SDL_Surface* surface, unsigned short symbol, int x, int y, unsigned long color) 
++{
++	unsigned long *dst;
++
++	int l, u;
++	
++	for (l = 0; l < FONT_KOR_HEIGHT; l++)
++	{
++		dst=(unsigned long*)surface->pixels + (surface->pitch / 4)*(y+l) + x;
++		for (u = 0; u < FONT_KOR_WIDTH; u++)
++		{
++			unsigned char rem = 1 << (((u) + (l) * FONT_KOR_WIDTH) & 7);
++			unsigned char offset  = ((u) + (l) * FONT_KOR_WIDTH) >> 3;
++			if ((bitmap_kor_bin[FONT_KOR_OFFSET(symbol-0xac00) + offset] & rem) > 0)	{								
++				*dst = color;
++			}
++			dst++;
++
++		}
++	}
++}
++#endif
++
++
+ int textrenderer_init(TextRenderer *tr, char *chars_file, int chwidth, int chheight)
+ {
+ 	int          result = 0;
+@@ -49,19 +118,29 @@ void textrenderer_draw_char(const TextRenderer *tr, UCodePoint ch, SDL_Surface *
+ 	const int n = (ch - '!') * tr->chwidth;
+ 	SDL_Rect  srect, drect;
+ 
+-	if (n >= 0) {
+-		srect.x = 1 + n;
+-		srect.y = 1;
+-		srect.w = tr->chwidth;
+-		srect.h = tr->chheight;
+-
+-		drect.x = target_x;
+-		drect.y = target_y;
+-		drect.w = 1;
+-		drect.h = 1;
+-
+-		SDL_BlitSurface(tr->chars, &srect, target, &drect);
++	if (ch >= 0xac00 && ch <= 0xd7a3) {
++		if (tr == &skin.font2)
++			draw_char_kor(target, ch, target_x, target_y, 0x3e76ff);
++		else
++			draw_char_kor(target, ch, target_x, target_y, 0xffffff);
++		
++	}
++	else {
++		if (n >= 0) {
++			srect.x = 1 + n;
++			srect.y = 1;
++			srect.w = tr->chwidth;
++			srect.h = tr->chheight;
++
++			drect.x = target_x;
++			drect.y = target_y;
++			drect.w = 1;
++			drect.h = 1;
++
++			SDL_BlitSurface(tr->chars, &srect, target, &drect);
++		}
+ 	}
++	
+ }
+ 
+ void textrenderer_draw_string_codepoints(const TextRenderer *tr, const UCodePoint *str, int str_len, SDL_Surface *target, int target_x, int target_y)
+@@ -127,10 +206,17 @@ void textrenderer_draw_string_with_highlight(const TextRenderer *tr1, const Text
+ 
+ 	if (ustr && charset_utf8_to_codepoints(ustr, str, utf8_chars)) {
+ 		for (i = 0, j = 0; i < utf8_chars && j - str_offset < max_length; i++, j++) {
++#if 1
++			if (ustr[i] == '*' && i+1 < utf8_chars && ustr[i+1] == '*') {
++				highlight = !highlight;
++				i+=2;
++			}
++#else
+ 			if (str[i] == '*' && i+1 < utf8_chars && str[i+1] == '*') {
+ 				highlight = !highlight;
+ 				i+=2;
+ 			}
++#endif
+ 			if (j >= str_offset && (j != str_offset || str_offset == 0)) {
+ 				if (!highlight)
+ 					textrenderer_draw_char(tr1, ustr[i], target, 
+diff --git a/src/id3.c b/src/id3.c
+index 449b032..52d0eb0 100644
+--- a/src/id3.c
++++ b/src/id3.c
+@@ -23,6 +23,26 @@
+ #include "id3.h"
+ #define ID3V2_MAX_SIZE 262144
+ 
++#include <iconv.h>
++ 
++int euckr2utf8(char *source, char *dest, int dest_size)
++{
++    iconv_t it;
++    char *pout;
++    size_t in_size, out_size;
++ 
++    it = iconv_open("UTF-8", "EUC-KR");
++    in_size = strlen(source);
++    out_size = dest_size;
++    pout = dest;
++    if (iconv(it, &source, &in_size, &pout, &out_size) < 0)
++        return(-1);
++    iconv_close(it);
++    return(pout - dest);
++    /* return(out_size); */
++}
++
++
+ static int convert_copy_strip(char *target, const char *source, size_t size)
+ {
+ 	int    res = 1;
+@@ -30,7 +50,7 @@ static int convert_copy_strip(char *target, const char *source, size_t size)
+ 	if (charset_is_valid_utf8_string(source))
+ 		strncpy(target, source, size-1);
+ 	else
+-		res = charset_iso8859_1_to_utf8(target, source, size-1);
++		res = euckr2utf8(source, target, size-1); //charset_iso8859_1_to_utf8(target, source, size-1);
+ 	for (i = size-1; i > 0 && (target[i] == ' ' || target[i] == '\0'); i--)
+ 	target[i] = '\0';
+ 	return res;
+@@ -118,9 +138,9 @@ static int set_data(
+ 			case LYRICS:  target = ti->lyrics;  target_size = SIZE_LYRICS-1;  break;
+ 		}
+ 		switch (charset) {
+-			case ISO_8859_1:
+-				res = charset_iso8859_1_to_utf8(target, str, target_size);
+-				break;
++//			case ISO_8859_1:
++//				res = charset_iso8859_1_to_utf8(target, str, target_size);
++//				break;
+ 			case UTF_8:
+ 				if (charset_is_valid_utf8_string(str)) {
+ 					strncpy(target, str, target_size);
+@@ -136,6 +156,7 @@ static int set_data(
+ 				res = charset_utf16_to_utf8(target, target_size, str, str_size, BOM);
+ 				break;
+ 			default:
++				res = euckr2utf8(str, target, target_size-1);
+ 				break;
+ 		}
+ 	}
+@@ -359,7 +380,8 @@ int id3_read_tag(const char *filename, TrackInfo *ti, const char *file_type)
+ 		if (charset_is_valid_utf8_string(filename_without_path)) {
+ 			strncpy(ti->title, filename_without_path, SIZE_TITLE-1);
+ 		} else {
+-			if (!charset_iso8859_1_to_utf8(ti->title, filename_without_path, SIZE_TITLE-1)) {
++			//if (!charset_iso8859_1_to_utf8(ti->title, filename_without_path, SIZE_TITLE-1)) {
++			if (!euckr2utf8(filename_without_path, ti->title, SIZE_TITLE-1)) {
+ 				wdprintf(V_WARNING, "id3", "ERROR: Failed to convert filename text to UTF-8.\n");
+ 			}
+ 		}
+diff --git a/src/m3u.c b/src/m3u.c
+index c6385da..76512ff 100644
+--- a/src/m3u.c
++++ b/src/m3u.c
+@@ -21,6 +21,7 @@
+ #include "debug.h"
+ #include "charset.h"
+ 
++int euckr2utf8(char *source, char *dest, int dest_size);
+ int m3u_open_file(M3u *m3u, const char *filename)
+ {
+ 	int    result = 0;
+@@ -106,7 +107,8 @@ int m3u_read_next_item(M3u *m3u)
+ 				} else {
+ 					int r;
+ 					wdprintf(V_DEBUG, "m3u", "Invalid UTF-8 string found! Trying to interpret as ISO-8859-1...\n");
+-					r = charset_iso8859_1_to_utf8(m3u->current_item_title, tmp_filename, 255);
++					r = euckr2utf8(tmp_filename, m3u->current_item_title, 255);
++					//charset_iso8859_1_to_utf8(m3u->current_item_title, tmp_filename, 255);
+ 					wdprintf(V_DEBUG, "m3u", "RES = %d\n", r);
+ 				}
+ 
+@@ -137,7 +139,8 @@ int m3u_read_next_item(M3u *m3u)
+ 			if (charset_is_valid_utf8_string(m3u->current_item_filename))
+ 				strncpy(m3u->current_item_title, m3u->current_item_filename, 255);
+ 			else
+-				charset_iso8859_1_to_utf8(m3u->current_item_title, m3u->current_item_filename, 255);
++				euckr2utf8(m3u->current_item_filename, m3u->current_item_title, 255);
++				//charset_iso8859_1_to_utf8(m3u->current_item_title, m3u->current_item_filename, 255);
+ 		}
+ 	}
+ 
+diff --git a/src/playlist.c b/src/playlist.c
+index 6919815..78ebf12 100644
+--- a/src/playlist.c
++++ b/src/playlist.c
+@@ -34,6 +34,7 @@
+ 
+ static int recursive_directory_add_in_progress = 0;
+ 
++extern int euckr2utf8(char *source, char *dest, int dest_size);
+ void playlist_init(Playlist *pl)
+ {
+ 	pl->length       = 0;
+@@ -172,7 +173,8 @@ int playlist_add_file(Playlist *pl, const char *filename_with_path, Entry *entry
+ 					strncpy(buf, filename, 255);
+ 					buf[255] = '\0';
+ 				} else {
+-					if (!charset_iso8859_1_to_utf8(buf, filename, 255)) {
++					//if (!charset_iso8859_1_to_utf8(buf, filename, 255)) {
++					if (!euckr2utf8(filename, buf, 255)) {	
+ 						wdprintf(V_WARNING, "playlist", "ERROR: Failed to convert filename text to UTF-8.\n");
+ 						snprintf(buf, 255, "[Filename with unsupported encoding]");
+ 					}
+diff --git a/src/tools/ui.c b/src/tools/ui.c
+index bafa734..6751c19 100644
+--- a/src/tools/ui.c
++++ b/src/tools/ui.c
+@@ -170,25 +170,25 @@ void ui_draw_trackinfo(UI *ui)
+ 	mvwprintw(ui->win_ti->win, 0, 0, "Title:\n");
+ 	wclrtoeol(ui->win_ti->win);
+ 	wattroff(ui->win_ti->win, A_BOLD);
+-	wprintw(ui->win_ti->win, ui->ti_title);
++	wprintw(ui->win_ti->win, "%s", ui->ti_title);
+ 	wclrtoeol(ui->win_ti->win);
+ 	wattron(ui->win_ti->win, A_BOLD);
+ 	wprintw(ui->win_ti->win, "\nArtist:\n");
+ 	wclrtoeol(ui->win_ti->win);
+ 	wattroff(ui->win_ti->win, A_BOLD);
+-	wprintw(ui->win_ti->win, ui->ti_artist);
++	wprintw(ui->win_ti->win, "%s", ui->ti_artist);
+ 	wclrtoeol(ui->win_ti->win);
+ 	wattron(ui->win_ti->win, A_BOLD);
+ 	wprintw(ui->win_ti->win, "\nAlbum:\n");
+ 	wclrtoeol(ui->win_ti->win);
+ 	wattroff(ui->win_ti->win, A_BOLD);
+-	wprintw(ui->win_ti->win, ui->ti_album);
++	wprintw(ui->win_ti->win, "%s", ui->ti_album);
+ 	wclrtoeol(ui->win_ti->win);
+ 	wattron(ui->win_ti->win, A_BOLD);
+ 	wprintw(ui->win_ti->win, "\nDate:\n");
+ 	wclrtoeol(ui->win_ti->win);
+ 	wattroff(ui->win_ti->win, A_BOLD);
+-	wprintw(ui->win_ti->win, ui->ti_date);
++	wprintw(ui->win_ti->win, "%s", ui->ti_date);
+ 	wclrtoeol(ui->win_ti->win);
+ 	wclrtobot(ui->win_ti->win);
+ }
+@@ -326,7 +326,7 @@ static void ui_draw_footer_button(UI *ui, char *key, char *name)
+ {
+ 	if (ui->color) wattron(ui->win_footer->win, COLOR_PAIR(2));
+ 	wattron(ui->win_footer->win, A_BOLD);
+-	wprintw(ui->win_footer->win, key);
++	wprintw(ui->win_footer->win, "%s", key);
+ 	wattroff(ui->win_footer->win, A_BOLD);
+ 	if (ui->color) wattroff(ui->win_footer->win, COLOR_PAIR(2));
+ 	if (ui->color) wattron(ui->win_footer->win, COLOR_PAIR(4));
+diff --git a/src/trackinfo.c b/src/trackinfo.c
+index 13ede15..85e4e74 100644
+--- a/src/trackinfo.c
++++ b/src/trackinfo.c
+@@ -21,6 +21,7 @@
+ #include "debug.h"
+ #include <pthread.h>
+ 
++extern int euckr2utf8(char *source, char *dest, int dest_size);
+ void trackinfo_set(
+ 	TrackInfo  *ti,
+ 	const char *artist,
+@@ -284,7 +285,8 @@ int trackinfo_load_lyrics_from_file(TrackInfo *ti, const char *file_name)
+ 			wdprintf(V_DEBUG, "trackinfo", "Lyrics text looks like it is UTF-8 encoded.\n");
+ 		} else { /* Try to convert ISO-8859-1 to UTF-8. */
+ 			wdprintf(V_DEBUG, "trackinfo", "Lyrics text looks like it is ISO-8859-1 encoded.\n");
+-			if (!charset_iso8859_1_to_utf8(ti->lyrics, buffer, SIZE_LYRICS-1)) {
++			//if (!charset_iso8859_1_to_utf8(ti->lyrics, buffer, SIZE_LYRICS-1)) {
++			if (!euckr2utf8(buffer, ti->lyrics, SIZE_LYRICS-1)) {
+ 				wdprintf(V_WARNING, "trackinfo", "ERROR: Failed to convert lyrics text to UTF-8.\n");
+ 				snprintf(ti->lyrics, SIZE_LYRICS-1, "[Text file file with unknown encoding found.]");
+ 			}
+diff --git a/src/util.c b/src/util.c
+index addd4e1..11ac2f1 100644
+--- a/src/util.c
++++ b/src/util.c
+@@ -28,6 +28,9 @@
+ #include "charset.h"
+ #include "debug.h"
+ #include "util.h"
++#include <iconv.h>
++ 
++int euckr2utf8(char *source, char *dest, int dest_size);
+ 
+ void strtoupper(char *target, const char *src, size_t len)
+ {
+@@ -307,7 +310,7 @@ int strncpy_charset_conv(
+ 				res = 1;
+ 			} else {
+ 				if (!(res = charset_utf16_to_utf8(target, target_size, source, source_size, BOM)))
+-					res = charset_iso8859_1_to_utf8(target, source, target_size);
++					res = euckr2utf8(source, target, target_size);; //charset_iso8859_1_to_utf8(target, source, target_size);
+ 			}
+ 			break;
+ 	}
